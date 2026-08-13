@@ -65,6 +65,27 @@ com.sok.fallain
 
 ---
 
+## 인증/인가
+
+### 요청자 식별
+모든 REST 엔드포인트는 요청자를 `@CurrentPlayer Player player` 파라미터(`CurrentPlayerArgumentResolver`, ADR-003)로 주입받는다. 컨트롤러가 직접 헤더를 파싱하거나 `PlayerRepository`를 호출하지 않는다. WebSocket(STOMP)은 `CONNECT` 프레임에서 `StompAuthChannelInterceptor`가 `X-Player-Id`를 검증해 세션 attributes에 바인딩하고, 이후 메시지 처리 시 이 세션 값을 사용한다 — REST와 별도의 신뢰 경로를 만들지 않는다.
+
+### 소유권 검증 (필수)
+특정 플레이어가 소유하는 리소스(예: 관계 UC)에 접근하는 **모든 신규 엔드포인트(REST/WS 불문)는 서비스 계층에서 반드시 소유권을 검증해야 한다.** 패턴과 근거는 `docs/adr/ADR-010-ownership-check-pattern.md`에 고정되어 있다 — 요약:
+
+- 요청자는 `@CurrentPlayer`(REST) / 세션 바인딩 `playerId`(WS)로만 식별한다. 클라이언트가 보낸 다른 소유자 식별값은 신뢰하지 않는다.
+- 리소스 조회 후 `resource.getPlayer().getId().equals(player.getId())`를 서비스 계층에서 검증한다(컨트롤러가 아님).
+- **소유자 불일치와 리소스 미존재를 동일하게 취급**한다 — 둘 다 같은 404 에러코드(예: `RELATIONSHIP_NOT_FOUND`)로 응답한다. **403은 사용하지 않는다** — 존재 여부 자체가 유출되면 순차 PK를 통한 리소스 열거(enumeration) 공격이 가능해지기 때문 (ADR-010 참조).
+- 새 엔드포인트를 추가할 때 이 검증을 빠뜨리는 것은 Phase 4 REVIEW/SECURITY에서 CRITICAL로 취급한다 (`docs/security/2026-08-14-idor-ownership-check.md`에 실제 발견 사례가 있다 — 참고할 것).
+
+### 에러코드 컨벤션
+`ErrorCode` enum의 `code` 필드는 **항상 enum 상수명 그대로**여야 한다 (예: `RELATIONSHIP_NOT_FOUND` enum의 `code`도 문자열 `"RELATIONSHIP_NOT_FOUND"`). `E001`, `E003` 같은 축약 코드나 enum명과 다른 임의의 문자열을 쓰지 않는다.
+
+이 규칙은 과거 실제 버그 재발을 막기 위한 것이다 — 한때 일부 `ErrorCode`가 축약코드(`E001`/`E003`)를, 나머지는 enum명을 `code`로 썼는데, 프론트엔드 `ERROR_SIGNAL_MESSAGES`가 enum명을 키로 매핑하고 있어 축약코드 케이스에서 에러 메시지 매핑이 조용히 실패하는 실사용 버그로 이어졌다(수정: 커밋 `cb91ac5`, 상세: `docs/security/2026-08-14-idor-ownership-check.md`). 신규 `ErrorCode` 상수를 추가할 때는 반드시 `code` 인자에 상수명과 동일한 문자열을 넣는다.
+
+---
+
 ## 기타 참고
 - 도입하지 않은 인프라(Kafka, Outbox, 분산락, Redis, 인프로세스 이벤트버스, Flyway, 정식 인증 프레임워크)에 대한 근거는 각각 ADR-001, ADR-001, ADR-001, ADR-001, ADR-007, ADR-008, ADR-003에 있다. 이후 구현 중 "왜 이 익숙한 도구를 안 쓰지?"라는 의문이 들면 먼저 `docs/adr/`를 확인한다.
 - API 성공 응답 공통 포맷은 아직 미확정 상태다 (ADR-009). Phase 3b 구현 중 확정되면 이 문서와 `docs/api/API.md`를 함께 갱신해야 한다.
+- 리소스 소유권 검증 패턴은 ADR-010에 고정되어 있다 (위 "인증/인가" 섹션 참조).
