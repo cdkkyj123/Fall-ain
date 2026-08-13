@@ -1,3 +1,25 @@
 spring:
   application:
     name: fallain
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    open-in-view: false
+    show-sql: false
+  datasource:
+    # local 프로파일과 다른 H2 인스턴스 이름을 사용한다. @ActiveProfiles("local")을 지정하지 않는
+    # @SpringBootTest 컨텍스트(예: 기본 컨텍스트 로드 테스트)가 local 프로파일 컨텍스트와 동일한
+    # 이름의 인메모리 DB(jdbc:h2:mem:fallain)를 물리적으로 공유하면, 서로 다른 Spring 컨텍스트가
+    # 각자 ddl-auto=create-drop을 수행할 때 상대 컨텍스트가 seed(data.sql)한 데이터를 drop/재생성
+    # 해버리는 테스트 간 오염이 발생한다(PersonaFactSeedDataTest 회귀 원인). 이름을 분리해 격리한다.
+    url: jdbc:h2:mem:fallain-default;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=false;MODE=MySQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  sql:
+    init:
+      mode: never
