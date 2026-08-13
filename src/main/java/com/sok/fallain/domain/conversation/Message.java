@@ -10,7 +10,7 @@ import lombok.NoArgsConstructor;
 
 @Entity
 @Table(name = "message", indexes = {
-        @Index(columnList = "user_character_id,day,turn_index")
+        @Index(columnList = "user_character_id,day_of_arc,turn_num")
 })
 @Getter
 @NoArgsConstructor
@@ -26,10 +26,10 @@ public class Message extends BaseEntity {
     @JoinColumn(name = "user_character_id", nullable = false)
     private UserCharacter userCharacter;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name = "day_of_arc")
     private Integer day;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name = "turn_num")
     private Integer turnIndex;
 
     @Column(nullable = false)
