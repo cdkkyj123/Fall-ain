@@ -24,7 +24,7 @@ public class DaySummary extends BaseEntity {
     @JoinColumn(name = "user_character_id", nullable = false)
     private UserCharacter userCharacter;
 
-    @Column(nullable = false)
+    @Column(nullable = false, name = "day_of_arc")
     private Integer day;
 
     @Column(nullable = false, columnDefinition = "TEXT")
