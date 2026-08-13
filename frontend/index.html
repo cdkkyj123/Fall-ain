@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>경청이 사랑</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      sockjs-client (a dependency of the STOMP WS client) references the
+      Node.js `global` object at module load time. Vite doesn't polyfill it
+      by default, which throws a ReferenceError before React ever mounts.
+      This must run before the module script below.
+    -->
+    <script>
+      window.global = window;
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
