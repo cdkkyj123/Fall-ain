@@ -26,6 +26,7 @@ const ERROR_SIGNAL_MESSAGES: Record<string, string> = {
   RELATIONSHIP_NOT_FOUND: "이 관계를 찾을 수 없어요.",
   AUTH_MISSING_PLAYER_ID: "잠시 접속이 끊어졌어요. 페이지를 새로고침해주세요.",
   CONCURRENT_MODIFICATION: "잠깐 엇갈림이 있었어요. 다시 시도해주세요.",
+  VALIDATION_ERROR: "메시지를 다시 확인해주세요.",
 };
 
 const DEFAULT_ERROR_SIGNAL_MESSAGE = "알 수 없는 문제가 발생했어요. 다시 시도해주세요.";

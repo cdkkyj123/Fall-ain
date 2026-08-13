@@ -94,6 +94,12 @@ describe("errorSignalMessage", () => {
     );
   });
 
+  it("maps VALIDATION_ERROR to a re-check message", () => {
+    expect(errorSignalMessage("VALIDATION_ERROR")).toBe(
+      "메시지를 다시 확인해주세요.",
+    );
+  });
+
   it("falls back to a generic message for an unknown code", () => {
     expect(errorSignalMessage("SOME_UNMAPPED_CODE")).toBe(
       "알 수 없는 문제가 발생했어요. 다시 시도해주세요.",
