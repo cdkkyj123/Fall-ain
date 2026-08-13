@@ -10,6 +10,7 @@ import com.sok.fallain.domain.conversation.DaySummaryRepository;
 import com.sok.fallain.domain.conversation.FactDropValidator;
 import com.sok.fallain.domain.conversation.LlmClient;
 import com.sok.fallain.domain.conversation.LlmTurnResult;
+import com.sok.fallain.domain.player.Player;
 import com.sok.fallain.domain.relationship.DayState;
 import com.sok.fallain.domain.relationship.UserCharacter;
 import com.sok.fallain.domain.relationship.UserCharacterRepository;
@@ -36,10 +37,13 @@ public class TurnOrchestrationService {
     /**
      * 유저 메시지를 접수하고 LLM 응답을 생성해 턴을 확정한다.
      *
-     * @throws BusinessException TURN_IN_PROGRESS(409) / TURN_BUDGET_EXCEEDED(409) /
-     *      DAY_CLOSED(409) / ARC_ENDED(409) / LLM_UNAVAILABLE(503)
+     * @param player 요청자(X-Player-Id 기반) — ucId의 소유자와 일치해야 한다 (IDOR 방지).
+     * @throws BusinessException RELATIONSHIP_NOT_FOUND(404) / TURN_IN_PROGRESS(409) /
+     *      TURN_BUDGET_EXCEEDED(409) / DAY_CLOSED(409) / ARC_ENDED(409) / LLM_UNAVAILABLE(503)
      */
-    public TurnMessageResponse sendMessage(Long ucId, String content) {
+    public TurnMessageResponse sendMessage(Long ucId, String content, Player player) {
+        verifyOwnership(ucId, player);
+
         RolloverOutcome rolloverOutcome = turnTransactionSupport.prepareDayState(ucId);
         if (rolloverOutcome == RolloverOutcome.ARC_JUST_ENDED || rolloverOutcome == RolloverOutcome.ARC_ALREADY_ENDED) {
             throw new BusinessException(ErrorCode.ARC_ENDED);
@@ -84,11 +88,14 @@ public class TurnOrchestrationService {
     /**
      * 유저 조기 종료. dayState==CLOSED면 DAY_CLOSED, pendingTurn==true면 TURN_IN_PROGRESS.
      * currentDay 자체의 롤오버는 다음 메시지 전송 시점에 수행한다.
+     *
+     * @param player 요청자(X-Player-Id 기반) — ucId의 소유자와 일치해야 한다 (IDOR 방지).
      */
     @Transactional
-    public EndDayResponse endDay(Long ucId) {
+    public EndDayResponse endDay(Long ucId, Player player) {
         UserCharacter uc = userCharacterRepository.findById(ucId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RELATIONSHIP_NOT_FOUND));
+        verifyOwnership(uc, player);
 
         if (uc.getDayState() == DayState.CLOSED) {
             throw new BusinessException(ErrorCode.DAY_CLOSED);
@@ -133,6 +140,22 @@ public class TurnOrchestrationService {
             return llmClient.generateTurn(ctx.request());
         } catch (Exception e) {
             return null;
+        }
+    }
+
+    /**
+     * ucId를 조회해 요청자(player)가 소유자인지 검증한다. 존재하지 않거나 소유자가 아니면
+     * 둘 다 동일하게 RELATIONSHIP_NOT_FOUND(404)를 던져 존재 자체를 숨긴다 (IDOR 방지).
+     */
+    private void verifyOwnership(Long ucId, Player player) {
+        UserCharacter uc = userCharacterRepository.findById(ucId)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RELATIONSHIP_NOT_FOUND));
+        verifyOwnership(uc, player);
+    }
+
+    private void verifyOwnership(UserCharacter uc, Player player) {
+        if (!uc.getPlayer().getId().equals(player.getId())) {
+            throw new BusinessException(ErrorCode.RELATIONSHIP_NOT_FOUND);
         }
     }
 }

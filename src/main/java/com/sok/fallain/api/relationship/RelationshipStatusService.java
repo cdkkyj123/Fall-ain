@@ -7,6 +7,7 @@ import com.sok.fallain.common.exception.ErrorCode;
 import com.sok.fallain.domain.conversation.MemoryCandidate;
 import com.sok.fallain.domain.conversation.MemoryCandidateRepository;
 import com.sok.fallain.domain.conversation.MemoryCandidateState;
+import com.sok.fallain.domain.player.Player;
 import com.sok.fallain.domain.relationship.Freshness;
 import com.sok.fallain.domain.relationship.FreshnessCalculator;
 import com.sok.fallain.domain.relationship.UserCharacter;
@@ -31,12 +32,18 @@ public class RelationshipStatusService {
      * 관계 상태를 조회한다.
      *
      * @param ucId 사용자-캐릭터 ID
+     * @param player 요청자(X-Player-Id 기반) — ucId의 소유자와 일치해야 한다 (IDOR 방지).
      * @return 관계 상태 응답 DTO
-     * @throws BusinessException RELATIONSHIP_NOT_FOUND (404)
+     * @throws BusinessException RELATIONSHIP_NOT_FOUND (404) — ucId가 없거나 소유자가 아닐 때
+     *      (존재 자체를 숨기기 위해 동일한 코드를 사용한다).
      */
-    public RelationshipStatusResponse getRelationshipStatus(Long ucId) {
+    public RelationshipStatusResponse getRelationshipStatus(Long ucId, Player player) {
         UserCharacter userCharacter = userCharacterRepository.findById(ucId)
                 .orElseThrow(() -> new BusinessException(ErrorCode.RELATIONSHIP_NOT_FOUND));
+
+        if (!userCharacter.getPlayer().getId().equals(player.getId())) {
+            throw new BusinessException(ErrorCode.RELATIONSHIP_NOT_FOUND);
+        }
 
         // stage 계산: intimacy 값에 따라
         String stage = calculateStage(userCharacter.getIntimacy());

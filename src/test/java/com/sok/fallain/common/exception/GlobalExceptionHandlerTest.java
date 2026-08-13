@@ -1,13 +1,20 @@
 package com.sok.fallain.common.exception;
 
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.MediaType;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -16,18 +23,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * 에러 응답 포맷 확정 스펙: HTTP 상태 = ErrorCode.status, 바디 = {"code": ErrorCode.code, "message": ErrorCode.message}.
  *
- * T3 스코프: com.sok.fallain.common.exception.GlobalExceptionHandler 신규 작성 예정.
- * 이 테스트는 GlobalExceptionHandler가 처리해야 하는 커스텀 예외(BusinessException, ErrorCode 보유)도
- * 함께 요구한다 — GlobalExceptionHandler가 ErrorCode 기반으로 응답을 만들려면 ErrorCode를 실어나르는
- * 예외 타입이 필요하기 때문이다. BusinessException은 PLANNER 산출물 T3 파일 목록에 명시되어 있지 않으므로
- * BACKEND 구현 시 GlobalExceptionHandler와 함께 추가 필요.
- *
- * 현재는 GlobalExceptionHandler/BusinessException이 존재하지 않고, spring-boot-starter-web도
- * 아직 추가되지 않았으므로(@RestController, MockMvc standaloneSetup 컴파일 불가) 컴파일 실패(RED)가 정상이다.
+ * Phase 4 REVIEW/SECURITY 발견사항(HIGH: 입력값 검증 부재) 대응: {@code @Valid} 바인딩 실패
+ * (MethodArgumentNotValidException)를 400 + VALIDATION_ERROR로, 낙관적락 충돌
+ * (ObjectOptimisticLockingFailureException)을 409 + CONCURRENT_MODIFICATION으로 매핑하는지
+ * 검증한다.
  */
 class GlobalExceptionHandlerTest {
 
     private MockMvc mockMvc;
+
+    record TestRequest(@NotBlank String content) {
+    }
 
     @RestController
     static class TestController {
@@ -40,6 +46,15 @@ class GlobalExceptionHandlerTest {
         @GetMapping("/test/unknown-exception")
         public void throwUnknownException() {
             throw new RuntimeException("boom");
+        }
+
+        @PostMapping("/test/validated")
+        public void validated(@Valid @RequestBody TestRequest request) {
+        }
+
+        @GetMapping("/test/optimistic-lock")
+        public void throwOptimisticLockException() {
+            throw new ObjectOptimisticLockingFailureException("UserCharacter", 1L);
         }
     }
 
@@ -65,5 +80,23 @@ class GlobalExceptionHandlerTest {
                 .andExpect(status().isInternalServerError())
                 .andExpect(jsonPath("$.code").value(ErrorCode.INTERNAL_SERVER_ERROR.getCode()))
                 .andExpect(jsonPath("$.message").value(ErrorCode.INTERNAL_SERVER_ERROR.getMessage()));
+    }
+
+    @Test
+    void Valid_검증_실패시_400과_VALIDATION_ERROR_바디를_반환한다() throws Exception {
+        mockMvc.perform(post("/test/validated")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"content\":\"\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()))
+                .andExpect(jsonPath("$.message").value(ErrorCode.VALIDATION_ERROR.getMessage()));
+    }
+
+    @Test
+    void 낙관적락_충돌시_409와_CONCURRENT_MODIFICATION_바디를_반환한다() throws Exception {
+        mockMvc.perform(get("/test/optimistic-lock"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.code").value(ErrorCode.CONCURRENT_MODIFICATION.getCode()))
+                .andExpect(jsonPath("$.message").value(ErrorCode.CONCURRENT_MODIFICATION.getMessage()));
     }
 }

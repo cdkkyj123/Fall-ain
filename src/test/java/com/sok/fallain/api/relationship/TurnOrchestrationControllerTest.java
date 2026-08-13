@@ -24,8 +24,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -36,18 +39,11 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  *
  * docs/api/API.md 섹션 3~4, ADR-006(2단계 커밋) 기준.
  * LlmClient는 실제 Gemini 연동 없이 @MockBean으로 대체한다 (ADR 미해결: Gemini API 키 미발급).
- * 상세 오케스트레이션 로직(재시도, 화이트리스트, intimacy 점수 등)의 단위/통합 검증은
- * TurnOrchestrationServiceTest에서 담당하며, 이 테스트는 컨트롤러 계층 HTTP 매핑만 확인한다.
  *
- * 계약 (TurnOrchestrationServiceTest 문서 참조):
- *  - TurnMessageRequest(String content)
- *  - TurnMessageResponse(Long ucId, String replyText, List<String> droppedFactKeys, Integer intimacy,
- *      Integer intimacyDelta, Integer turnsUsedToday, Integer turnsLeftToday, String dayState,
- *      Boolean dayJustClosed)
- *  - EndDayResponse(Long ucId, Integer closedDay, String closedReason, String dayState)
- *
- * 현재 TurnOrchestrationController/Service/LlmClient/TurnMessageRequest 등이 존재하지 않으므로
- * 컴파일 실패(RED)가 정상이다.
+ * 소유권 검증(IDOR 방지, Phase 4 REVIEW 발견사항): 요청자(X-Player-Id)가 ucId의 소유자가
+ * 아니면 404 + RELATIONSHIP_NOT_FOUND를 반환한다 (존재 자체를 숨긴다). 그래서 아래 정상
+ * 케이스들은 반드시 uc를 생성할 때 실제로 사용한 Player의 playerId를 헤더에 실어야 한다
+ * (예전에는 무작위 UUID를 보내고도 통과했으나, 소유권 검증 도입 후에는 이 방식이 통하지 않는다).
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -83,11 +79,12 @@ class TurnOrchestrationControllerTest {
         );
     }
 
-    private UserCharacter persistUserCharacter(Character character, int currentDay, int turnsUsedToday,
-                                                boolean pendingTurn, DayState dayState, int intimacy) {
+    private UserCharacter persistUserCharacter(Player player, Character character, int currentDay,
+                                                int turnsUsedToday, boolean pendingTurn, DayState dayState,
+                                                int intimacy) {
         return userCharacterRepository.saveAndFlush(
                 UserCharacter.builder()
-                        .player(persistPlayer())
+                        .player(player)
                         .character(character)
                         .intimacy(intimacy)
                         .currentDay(currentDay)
@@ -102,15 +99,16 @@ class TurnOrchestrationControllerTest {
 
     @Test
     void 메시지_전송에_성공하면_200과_응답필드를_반환한다() throws Exception {
+        Player player = persistPlayer();
         Character character = persistCharacter();
-        UserCharacter uc = persistUserCharacter(character, 1, 0, false, DayState.IN_PROGRESS, 0);
+        UserCharacter uc = persistUserCharacter(player, character, 1, 0, false, DayState.IN_PROGRESS, 0);
 
         given(llmClient.generateTurn(any())).willReturn(
                 new LlmTurnResult("반가워!", List.of(), null)
         );
 
         mockMvc.perform(post("/api/relationships/{ucId}/message", uc.getId())
-                        .header("X-Player-Id", UUID.randomUUID().toString())
+                        .header("X-Player-Id", player.getPlayerId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new TurnMessageRequest("안녕!"))))
                 .andExpect(status().isOk())
@@ -121,12 +119,30 @@ class TurnOrchestrationControllerTest {
     }
 
     @Test
-    void 턴예산_초과시_409와_TURN_BUDGET_EXCEEDED를_반환한다() throws Exception {
+    void 다른_플레이어가_메시지를_보내면_404와_RELATIONSHIP_NOT_FOUND를_반환한다() throws Exception {
+        Player owner = persistPlayer();
+        Player intruder = persistPlayer();
         Character character = persistCharacter();
-        UserCharacter uc = persistUserCharacter(character, 1, 8, false, DayState.IN_PROGRESS, 0);
+        UserCharacter uc = persistUserCharacter(owner, character, 1, 0, false, DayState.IN_PROGRESS, 0);
 
         mockMvc.perform(post("/api/relationships/{ucId}/message", uc.getId())
-                        .header("X-Player-Id", UUID.randomUUID().toString())
+                        .header("X-Player-Id", intruder.getPlayerId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new TurnMessageRequest("안녕!"))))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(ErrorCode.RELATIONSHIP_NOT_FOUND.getCode()));
+
+        verify(llmClient, never()).generateTurn(any());
+    }
+
+    @Test
+    void 턴예산_초과시_409와_TURN_BUDGET_EXCEEDED를_반환한다() throws Exception {
+        Player player = persistPlayer();
+        Character character = persistCharacter();
+        UserCharacter uc = persistUserCharacter(player, character, 1, 8, false, DayState.IN_PROGRESS, 0);
+
+        mockMvc.perform(post("/api/relationships/{ucId}/message", uc.getId())
+                        .header("X-Player-Id", player.getPlayerId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new TurnMessageRequest("한번더"))))
                 .andExpect(status().isConflict())
@@ -134,14 +150,29 @@ class TurnOrchestrationControllerTest {
     }
 
     @Test
-    void LLM_호출이_계속_실패하면_503과_LLM_UNAVAILABLE을_반환한다() throws Exception {
+    void 빈_메시지를_보내면_400과_VALIDATION_ERROR를_반환한다() throws Exception {
+        Player player = persistPlayer();
         Character character = persistCharacter();
-        UserCharacter uc = persistUserCharacter(character, 1, 0, false, DayState.IN_PROGRESS, 0);
+        UserCharacter uc = persistUserCharacter(player, character, 1, 0, false, DayState.IN_PROGRESS, 0);
+
+        mockMvc.perform(post("/api/relationships/{ucId}/message", uc.getId())
+                        .header("X-Player-Id", player.getPlayerId().toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(new TurnMessageRequest(""))))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value(ErrorCode.VALIDATION_ERROR.getCode()));
+    }
+
+    @Test
+    void LLM_호출이_계속_실패하면_503과_LLM_UNAVAILABLE을_반환한다() throws Exception {
+        Player player = persistPlayer();
+        Character character = persistCharacter();
+        UserCharacter uc = persistUserCharacter(player, character, 1, 0, false, DayState.IN_PROGRESS, 0);
 
         given(llmClient.generateTurn(any())).willThrow(new RuntimeException("LLM 장애"));
 
         mockMvc.perform(post("/api/relationships/{ucId}/message", uc.getId())
-                        .header("X-Player-Id", UUID.randomUUID().toString())
+                        .header("X-Player-Id", player.getPlayerId().toString())
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(new TurnMessageRequest("안녕"))))
                 .andExpect(status().isServiceUnavailable())
@@ -150,27 +181,45 @@ class TurnOrchestrationControllerTest {
 
     @Test
     void 조기종료하면_200과_USER_ENDED_closedReason을_반환한다() throws Exception {
+        Player player = persistPlayer();
         Character character = persistCharacter();
-        UserCharacter uc = persistUserCharacter(character, 3, 2, false, DayState.IN_PROGRESS, 30);
+        UserCharacter uc = persistUserCharacter(player, character, 3, 2, false, DayState.IN_PROGRESS, 30);
 
         mockMvc.perform(post("/api/relationships/{ucId}/end-day", uc.getId())
-                        .header("X-Player-Id", UUID.randomUUID().toString()))
+                        .header("X-Player-Id", player.getPlayerId().toString()))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.ucId").value(uc.getId()))
                 .andExpect(jsonPath("$.closedReason").value("USER_ENDED"))
                 .andExpect(jsonPath("$.dayState").value("CLOSED"));
 
         UserCharacter reloaded = userCharacterRepository.findById(uc.getId()).orElseThrow();
-        org.assertj.core.api.Assertions.assertThat(reloaded.getDayState()).isEqualTo(DayState.CLOSED);
+        assertThat(reloaded.getDayState()).isEqualTo(DayState.CLOSED);
+    }
+
+    @Test
+    void 다른_플레이어가_조기종료를_요청하면_404와_RELATIONSHIP_NOT_FOUND를_반환한다() throws Exception {
+        Player owner = persistPlayer();
+        Player intruder = persistPlayer();
+        Character character = persistCharacter();
+        UserCharacter uc = persistUserCharacter(owner, character, 3, 2, false, DayState.IN_PROGRESS, 30);
+
+        mockMvc.perform(post("/api/relationships/{ucId}/end-day", uc.getId())
+                        .header("X-Player-Id", intruder.getPlayerId().toString()))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value(ErrorCode.RELATIONSHIP_NOT_FOUND.getCode()));
+
+        UserCharacter reloaded = userCharacterRepository.findById(uc.getId()).orElseThrow();
+        assertThat(reloaded.getDayState()).isEqualTo(DayState.IN_PROGRESS);
     }
 
     @Test
     void 이미_마감된_하루에_조기종료를_재요청하면_409와_DAY_CLOSED를_반환한다() throws Exception {
+        Player player = persistPlayer();
         Character character = persistCharacter();
-        UserCharacter uc = persistUserCharacter(character, 3, 2, false, DayState.CLOSED, 30);
+        UserCharacter uc = persistUserCharacter(player, character, 3, 2, false, DayState.CLOSED, 30);
 
         mockMvc.perform(post("/api/relationships/{ucId}/end-day", uc.getId())
-                        .header("X-Player-Id", UUID.randomUUID().toString()))
+                        .header("X-Player-Id", player.getPlayerId().toString()))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.code").value(ErrorCode.DAY_CLOSED.getCode()));
     }

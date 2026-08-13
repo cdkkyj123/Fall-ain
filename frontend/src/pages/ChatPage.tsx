@@ -231,7 +231,7 @@ export function ChatPage() {
               <p className="text-xs text-stone-400">{status.day}일째</p>
               <IntimacyMeter intimacy={status.intimacy} stage={status.stage} />
             </div>
-            <TurnBudgetBar turnsLeftToday={status.turnsLeftToday} turnBudget={status.turnBudget} />
+            <TurnBudgetBar turnsLeftToday={status.turnsLeftToday} turnBudget={status.turnBudget} dayState={status.dayState} />
           </div>
           <LingeringHints memoryCandidates={status.memoryCandidates} />
         </div>

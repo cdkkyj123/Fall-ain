@@ -3,10 +3,15 @@ import { turnsLeftLabel } from "../lib/relationshipDisplay";
 interface TurnBudgetBarProps {
   turnsLeftToday: number;
   turnBudget: number;
+  dayState?: string;
 }
 
-export function TurnBudgetBar({ turnsLeftToday, turnBudget }: TurnBudgetBarProps) {
-  const usedCount = Math.max(0, turnBudget - Math.max(0, turnsLeftToday));
+export function TurnBudgetBar({ turnsLeftToday, turnBudget, dayState }: TurnBudgetBarProps) {
+  const isDayClosed = dayState === "CLOSED";
+  const usedCount = isDayClosed
+    ? turnBudget
+    : Math.max(0, turnBudget - Math.max(0, turnsLeftToday));
+  const label = turnsLeftLabel(turnsLeftToday, turnBudget, dayState);
 
   return (
     <div className="flex items-center gap-2">
@@ -21,7 +26,7 @@ export function TurnBudgetBar({ turnsLeftToday, turnBudget }: TurnBudgetBarProps
         ))}
       </div>
       <span className="whitespace-nowrap text-xs text-stone-500">
-        오늘, {turnsLeftLabel(turnsLeftToday, turnBudget)}
+        {isDayClosed ? label : `오늘, ${label}`}
       </span>
     </div>
   );

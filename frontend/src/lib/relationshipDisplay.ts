@@ -38,11 +38,20 @@ export function errorSignalMessage(code: string): string {
   return ERROR_SIGNAL_MESSAGES[code] ?? DEFAULT_ERROR_SIGNAL_MESSAGE;
 }
 
+const DAY_CLOSED_LABEL = "오늘은 마무리했어요";
+
 /**
  * 오늘 남은 대화 턴을 "N/M 남음" 형태로 렌더링한다.
  * turnsLeftToday가 음수로 내려오는 경우(레이스 컨디션 등)에도 0으로 clamp한다.
+ *
+ * dayState가 "CLOSED"이면 턴이 남아있어도(예: 조기종료 직후 turnsLeftToday가 아직
+ * 갱신되지 않은 상태) "8/8 남음" 같은 모순된 문구가 보이지 않도록, 잔여 턴 수 대신
+ * 하루가 마무리됐다는 문구로 대체한다.
  */
-export function turnsLeftLabel(turnsLeftToday: number, turnBudget: number): string {
+export function turnsLeftLabel(turnsLeftToday: number, turnBudget: number, dayState?: string): string {
+  if (dayState === "CLOSED") {
+    return DAY_CLOSED_LABEL;
+  }
   const clamped = Math.max(0, turnsLeftToday);
   return `${clamped}/${turnBudget} 남음`;
 }

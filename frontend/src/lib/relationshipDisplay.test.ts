@@ -118,3 +118,17 @@ describe("turnsLeftLabel", () => {
     expect(turnsLeftLabel(-1, 8)).toBe("0/8 남음");
   });
 });
+
+describe("turnsLeftLabel with dayState", () => {
+  it("shows a wrap-up message when the day is closed, even if turnsLeftToday looks non-zero (stale state)", () => {
+    expect(turnsLeftLabel(8, 8, "CLOSED")).toBe("오늘은 마무리했어요");
+  });
+
+  it("still renders N/M when the day is in progress", () => {
+    expect(turnsLeftLabel(5, 8, "IN_PROGRESS")).toBe("5/8 남음");
+  });
+
+  it("renders N/M when dayState is omitted (backward compatible)", () => {
+    expect(turnsLeftLabel(2, 8)).toBe("2/8 남음");
+  });
+});
