@@ -16,6 +16,7 @@ public enum ErrorCode {
     LLM_UNAVAILABLE("LLM_UNAVAILABLE", "LLM 호출에 실패했습니다.", HttpStatus.SERVICE_UNAVAILABLE),
     DAY_CLOSED("DAY_CLOSED", "이미 종료된 하루입니다.", HttpStatus.CONFLICT),
     ARC_ENDED("ARC_ENDED", "관계 아크가 이미 종료되었습니다.", HttpStatus.CONFLICT),
+    AUTH_MISSING_PLAYER_ID("AUTH_MISSING_PLAYER_ID", "X-Player-Id 헤더가 없습니다.", HttpStatus.UNAUTHORIZED),
     INTERNAL_SERVER_ERROR("E500", "Internal server error", HttpStatus.INTERNAL_SERVER_ERROR);
 
     private final String code;

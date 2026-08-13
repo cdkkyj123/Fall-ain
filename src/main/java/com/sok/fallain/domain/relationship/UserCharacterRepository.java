@@ -1,11 +1,21 @@
 package com.sok.fallain.domain.relationship;
 
+import com.sok.fallain.domain.character.Character;
+import com.sok.fallain.domain.player.Player;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Optional;
+
 public interface UserCharacterRepository extends JpaRepository<UserCharacter, Long> {
+
+    /**
+     * player+character 조합으로 기존 UserCharacter를 조회한다 (관계 시작 API의 멱등성 판단용).
+     * unique constraint(player_id, character_id)와 일치한다.
+     */
+    Optional<UserCharacter> findByPlayerAndCharacter(Player player, Character character);
 
     /**
      * TX1 예약: pendingTurn==false && turnsUsedToday<turnBudget && dayState==dayState 조건을
